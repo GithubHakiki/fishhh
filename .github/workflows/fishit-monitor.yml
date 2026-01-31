@@ -37,6 +37,9 @@ jobs:
             });
             
             const page = await browser.newPage();
+            
+            // Set timezone to WIB (Asia/Jakarta) so Roblox shows correct time
+            await page.emulateTimezone('Asia/Jakarta');
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
             
             console.log('Navigating to Fish-It page...');
@@ -111,7 +114,7 @@ jobs:
             
             if (currentEvent.date) {
               try {
-                // Parse date like "Sun, Feb 1, 1:00 AM" (EST time)
+                // Parse date like "Sun, Feb 1, 8:00 AM" (WIB time from Puppeteer with Asia/Jakarta timezone)
                 const dateMatch = currentEvent.date.match(/(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)/);
                 if (dateMatch) {
                   const [_, dayName, month, day, hour, minute, ampm] = dateMatch;
@@ -127,20 +130,20 @@ jobs:
                     'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
                   };
                   
-                  // Create date object in EST (UTC-5)
+                  // Create date object in WIB (UTC+7)
                   const year = new Date().getFullYear();
                   const dateObj = new Date(Date.UTC(
                     year, 
                     monthMap[month], 
                     parseInt(day), 
-                    hour24 + 5, // Convert EST to UTC by adding 5 hours
+                    hour24 - 7, // Convert WIB to UTC by subtracting 7 hours
                     parseInt(minute)
                   ));
                   
                   // Get Unix timestamp (seconds)
                   discordTimestamp = Math.floor(dateObj.getTime() / 1000);
                   
-                  console.log(`Parsed date: ${currentEvent.date} (EST) -> Unix: ${discordTimestamp}`);
+                  console.log(`Parsed date: ${currentEvent.date} (WIB) -> Unix: ${discordTimestamp}`);
                 }
               } catch (e) {
                 console.log('Could not parse date:', e.message);
@@ -211,7 +214,6 @@ jobs:
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                content: '@fish',
                 embeds: [embed]
               })
             });
