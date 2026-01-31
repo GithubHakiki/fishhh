@@ -96,6 +96,13 @@ jobs:
               process.exit(0);
             }
             
+            // ONLY send notification if there was a previous event (not bootstrap)
+            if (!lastEventId) {
+              console.log('Bootstrap - saving event ID without notification');
+              fs.writeFileSync('last_event_id.txt', currentEvent.id);
+              process.exit(0);
+            }
+            
             // Save new event ID
             fs.writeFileSync('last_event_id.txt', currentEvent.id);
             
@@ -106,29 +113,50 @@ jobs:
               process.exit(1);
             }
             
-            const isNewEvent = !!lastEventId;
-            const message = isNewEvent ? '🚨 **EVENT BARU TERDETEKSI!**' : '🎣 Event aktif terdeteksi';
+            // Parse date and convert to Unix timestamp for Discord
+            let discordTimestamp = null;
             
-            // Parse date if available
-            let timestamp = new Date().toISOString();
-            let formattedDate = currentEvent.date;
-            
-            // Try to parse the date string (e.g., "Sun, Feb 1, 8:00 AM")
             if (currentEvent.date) {
               try {
-                // This is a simple parse - adjust if needed based on actual date format
+                // Parse date like "Sun, Feb 1, 8:00 AM" (WIB time)
                 const dateMatch = currentEvent.date.match(/(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)/);
                 if (dateMatch) {
-                  formattedDate = `📅 ${currentEvent.date}`;
+                  const [_, dayName, month, day, hour, minute, ampm] = dateMatch;
+                  
+                  // Convert to 24-hour format
+                  let hour24 = parseInt(hour);
+                  if (ampm === 'PM' && hour24 !== 12) hour24 += 12;
+                  if (ampm === 'AM' && hour24 === 12) hour24 = 0;
+                  
+                  // Month mapping
+                  const monthMap = {
+                    'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+                    'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+                  };
+                  
+                  // Create date object in WIB (UTC+7)
+                  const year = new Date().getFullYear();
+                  const dateObj = new Date(Date.UTC(
+                    year, 
+                    monthMap[month], 
+                    parseInt(day), 
+                    hour24 - 7, // Convert WIB to UTC by subtracting 7 hours
+                    parseInt(minute)
+                  ));
+                  
+                  // Get Unix timestamp (seconds)
+                  discordTimestamp = Math.floor(dateObj.getTime() / 1000);
+                  
+                  console.log(`Parsed date: ${currentEvent.date} -> Unix: ${discordTimestamp}`);
                 }
               } catch (e) {
-                console.log('Could not parse date');
+                console.log('Could not parse date:', e.message);
               }
             }
             
             const embed = {
               title: '🎣 Fish-It Event Alert',
-              description: message,
+              description: '🚨 **EVENT BARU TERDETEKSI!**',
               url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
               color: 0xFF6600, // Orange
               thumbnail: {
@@ -141,17 +169,24 @@ jobs:
                   inline: false
                 }
               ],
-              timestamp: timestamp,
+              timestamp: new Date().toISOString(),
               footer: {
                 text: 'Fish-It Event Watcher'
               }
             };
             
-            // Add date field if available
-            if (formattedDate) {
+            // Add date field with Discord timestamp (auto-converts to user's timezone)
+            if (discordTimestamp) {
               embed.fields.push({
                 name: '🕐 Event Time',
-                value: formattedDate,
+                value: `<t:${discordTimestamp}:F>`, // Discord timestamp format: full date + time
+                inline: false
+              });
+            } else if (currentEvent.date) {
+              // Fallback if parsing failed
+              embed.fields.push({
+                name: '🕐 Event Time',
+                value: `📅 ${currentEvent.date}`,
                 inline: false
               });
             }
@@ -183,7 +218,7 @@ jobs:
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                content: isNewEvent ? '@everyone' : null,
+                content: '@everyone',
                 embeds: [embed]
               })
             });
