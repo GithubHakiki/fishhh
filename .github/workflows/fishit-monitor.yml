@@ -111,7 +111,7 @@ jobs:
             
             if (currentEvent.date) {
               try {
-                // Parse date like "Sun, Feb 1, 8:00 AM" (WIB time)
+                // Parse date like "Sun, Feb 1, 1:00 AM" (EST time)
                 const dateMatch = currentEvent.date.match(/(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)/);
                 if (dateMatch) {
                   const [_, dayName, month, day, hour, minute, ampm] = dateMatch;
@@ -127,20 +127,20 @@ jobs:
                     'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
                   };
                   
-                  // Create date object in WIB (UTC+7)
+                  // Create date object in EST (UTC-5)
                   const year = new Date().getFullYear();
                   const dateObj = new Date(Date.UTC(
                     year, 
                     monthMap[month], 
                     parseInt(day), 
-                    hour24 - 7, // Convert WIB to UTC by subtracting 7 hours
+                    hour24 + 5, // Convert EST to UTC by adding 5 hours
                     parseInt(minute)
                   ));
                   
                   // Get Unix timestamp (seconds)
                   discordTimestamp = Math.floor(dateObj.getTime() / 1000);
                   
-                  console.log(`Parsed date: ${currentEvent.date} -> Unix: ${discordTimestamp}`);
+                  console.log(`Parsed date: ${currentEvent.date} (EST) -> Unix: ${discordTimestamp}`);
                 }
               } catch (e) {
                 console.log('Could not parse date:', e.message);
@@ -211,7 +211,7 @@ jobs:
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                content: '@everyone',
+                content: '@fish',
                 embeds: [embed]
               })
             });
