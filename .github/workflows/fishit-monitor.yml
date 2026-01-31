@@ -1,0 +1,150 @@
+name: Fish-It Event Monitor
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # Every 10 minutes
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  check-event:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install Puppeteer
+        run: npm install puppeteer
+      
+      - name: Check for Fish-It Events
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          node << 'EOF'
+          const puppeteer = require('puppeteer');
+          const fs = require('fs');
+
+          (async () => {
+            console.log('Launching browser...');
+            const browser = await puppeteer.launch({
+              headless: 'new',
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
+            });
+            
+            const page = await browser.newPage();
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+            
+            console.log('Navigating to Fish-It page...');
+            await page.goto('https://www.roblox.com/games/121864768012064/Fish-It', {
+              waitUntil: 'networkidle2',
+              timeout: 30000
+            });
+            
+            // Wait for event tiles to load
+            await page.waitForSelector('.experience-events-tile', { timeout: 5000 }).catch(() => {
+              console.log('No event tiles found');
+            });
+            
+            // Extract event data
+            const events = await page.evaluate(() => {
+              const tiles = document.querySelectorAll('.experience-events-tile');
+              return Array.from(tiles).map(tile => ({
+                id: tile.id,
+                title: tile.querySelector('.game-card-name')?.textContent || 'Unknown',
+                link: tile.querySelector('a')?.href || ''
+              }));
+            });
+            
+            console.log(`Found ${events.length} event(s)`);
+            
+            await browser.close();
+            
+            if (events.length === 0) {
+              console.log('No events found');
+              process.exit(0);
+            }
+            
+            const currentEvent = events[0];
+            console.log('Current event:', currentEvent);
+            
+            // Read last event ID
+            let lastEventId = '';
+            try {
+              lastEventId = fs.readFileSync('last_event_id.txt', 'utf8').trim();
+            } catch (e) {
+              console.log('No previous event ID found');
+            }
+            
+            if (currentEvent.id === lastEventId) {
+              console.log('Event unchanged');
+              process.exit(0);
+            }
+            
+            // Save new event ID
+            fs.writeFileSync('last_event_id.txt', currentEvent.id);
+            
+            // Send to Discord
+            const discordWebhook = process.env.DISCORD_WEBHOOK;
+            if (!discordWebhook) {
+              console.error('DISCORD_WEBHOOK not set');
+              process.exit(1);
+            }
+            
+            const message = lastEventId ? '🚨 EVENT BARU TERDETEKSI!' : '🎣 Event aktif terdeteksi (bootstrap)';
+            
+            const response = await fetch(discordWebhook, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                content: '@everyone',
+                embeds: [{
+                  title: '🎣 Fish-It Event Alert',
+                  description: message,
+                  url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
+                  color: 0xFF6600,
+                  fields: [
+                    {
+                      name: 'Event Name',
+                      value: currentEvent.title,
+                      inline: false
+                    },
+                    {
+                      name: 'Event ID',
+                      value: `\`${currentEvent.id}\``,
+                      inline: true
+                    },
+                    {
+                      name: 'Event Link',
+                      value: `[Click Here](https://www.roblox.com/events/${currentEvent.id})`,
+                      inline: true
+                    }
+                  ],
+                  timestamp: new Date().toISOString(),
+                  footer: {
+                    text: 'Fish-It Event Watcher (GitHub Actions)'
+                  }
+                }]
+              })
+            });
+            
+            if (response.ok) {
+              console.log('✅ Discord notification sent!');
+            } else {
+              console.error('❌ Failed to send Discord notification:', response.status);
+              process.exit(1);
+            }
+          })();
+          EOF
+      
+      - name: Commit event ID
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add last_event_id.txt || true
+          git commit -m "Update event ID" || true
+          git push || true
