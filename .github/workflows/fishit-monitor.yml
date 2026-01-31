@@ -96,13 +96,6 @@ jobs:
               process.exit(0);
             }
             
-            // ONLY send notification if there was a previous event (not bootstrap)
-            if (!lastEventId) {
-              console.log('Bootstrap - saving event ID without notification');
-              fs.writeFileSync('last_event_id.txt', currentEvent.id);
-              process.exit(0);
-            }
-            
             // Save new event ID
             fs.writeFileSync('last_event_id.txt', currentEvent.id);
             
