@@ -50,14 +50,25 @@ jobs:
               console.log('No event tiles found');
             });
             
-            // Extract event data
+            // Extract event data with more details
             const events = await page.evaluate(() => {
               const tiles = document.querySelectorAll('.experience-events-tile');
-              return Array.from(tiles).map(tile => ({
-                id: tile.id,
-                title: tile.querySelector('.game-card-name')?.textContent || 'Unknown',
-                link: tile.querySelector('a')?.href || ''
-              }));
+              return Array.from(tiles).map(tile => {
+                const titleElement = tile.querySelector('.game-card-name');
+                const dateElement = tile.querySelector('.game-card-info');
+                const imageElement = tile.querySelector('img');
+                const linkElement = tile.querySelector('a');
+                const descriptionElement = tile.querySelector('.info-label');
+                
+                return {
+                  id: tile.id,
+                  title: titleElement?.textContent?.trim() || 'Unknown Event',
+                  date: dateElement?.textContent?.trim() || '',
+                  image: imageElement?.src || '',
+                  link: linkElement?.href || '',
+                  description: descriptionElement?.textContent?.trim() || ''
+                };
+              });
             });
             
             console.log(`Found ${events.length} event(s)`);
@@ -70,7 +81,7 @@ jobs:
             }
             
             const currentEvent = events[0];
-            console.log('Current event:', currentEvent);
+            console.log('Current event:', JSON.stringify(currentEvent, null, 2));
             
             // Read last event ID
             let lastEventId = '';
@@ -95,47 +106,93 @@ jobs:
               process.exit(1);
             }
             
-            const message = lastEventId ? '🚨 EVENT BARU TERDETEKSI!' : '🎣 Event aktif terdeteksi (bootstrap)';
+            const isNewEvent = !!lastEventId;
+            const message = isNewEvent ? '🚨 **EVENT BARU TERDETEKSI!**' : '🎣 Event aktif terdeteksi';
+            
+            // Parse date if available
+            let timestamp = new Date().toISOString();
+            let formattedDate = currentEvent.date;
+            
+            // Try to parse the date string (e.g., "Sun, Feb 1, 8:00 AM")
+            if (currentEvent.date) {
+              try {
+                // This is a simple parse - adjust if needed based on actual date format
+                const dateMatch = currentEvent.date.match(/(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)/);
+                if (dateMatch) {
+                  formattedDate = `📅 ${currentEvent.date}`;
+                }
+              } catch (e) {
+                console.log('Could not parse date');
+              }
+            }
+            
+            const embed = {
+              title: '🎣 Fish-It Event Alert',
+              description: message,
+              url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
+              color: 0xFF6600, // Orange
+              thumbnail: {
+                url: currentEvent.image || 'https://tr.rbxcdn.com/180DAY-a9ff09dd1042a26b4364f92a4324ad2a/384/216/Image/Jpeg/noFilter'
+              },
+              fields: [
+                {
+                  name: '📌 Event Name',
+                  value: currentEvent.title || 'Unknown Event',
+                  inline: false
+                }
+              ],
+              timestamp: timestamp,
+              footer: {
+                text: 'Fish-It Event Watcher'
+              }
+            };
+            
+            // Add date field if available
+            if (formattedDate) {
+              embed.fields.push({
+                name: '🕐 Event Time',
+                value: formattedDate,
+                inline: false
+              });
+            }
+            
+            // Add description if available
+            if (currentEvent.description) {
+              embed.fields.push({
+                name: '📝 Details',
+                value: currentEvent.description,
+                inline: false
+              });
+            }
+            
+            // Add event ID
+            embed.fields.push({
+              name: '🔖 Event ID',
+              value: `\`${currentEvent.id}\``,
+              inline: true
+            });
+            
+            // Add link
+            embed.fields.push({
+              name: '🔗 Link',
+              value: `[Open Event](https://www.roblox.com/events/${currentEvent.id})`,
+              inline: true
+            });
             
             const response = await fetch(discordWebhook, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                content: '@everyone',
-                embeds: [{
-                  title: '🎣 Fish-It Event Alert',
-                  description: message,
-                  url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
-                  color: 0xFF6600,
-                  fields: [
-                    {
-                      name: 'Event Name',
-                      value: currentEvent.title,
-                      inline: false
-                    },
-                    {
-                      name: 'Event ID',
-                      value: `\`${currentEvent.id}\``,
-                      inline: true
-                    },
-                    {
-                      name: 'Event Link',
-                      value: `[Click Here](https://www.roblox.com/events/${currentEvent.id})`,
-                      inline: true
-                    }
-                  ],
-                  timestamp: new Date().toISOString(),
-                  footer: {
-                    text: 'Fish-It Event Watcher (GitHub Actions)'
-                  }
-                }]
+                content: isNewEvent ? '@everyone' : null,
+                embeds: [embed]
               })
             });
             
             if (response.ok) {
               console.log('✅ Discord notification sent!');
             } else {
-              console.error('❌ Failed to send Discord notification:', response.status);
+              const errorText = await response.text();
+              console.error('❌ Failed to send Discord notification:', response.status, errorText);
               process.exit(1);
             }
           })();
@@ -146,5 +203,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add last_event_id.txt || true
-          git commit -m "Update event ID" || true
+          git commit -m "Update event ID [skip ci]" || true
           git push || true
