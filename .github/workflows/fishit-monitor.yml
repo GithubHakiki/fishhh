@@ -201,9 +201,6 @@ jobs:
             // Build embed with better spacing
             const embed = {
               title: currentEvent.isLiveNow ? '🔴 Fish-It Event LIVE NOW!' : '🎣 Fish-It Event Alert',
-              description: currentEvent.isLiveNow 
-                ? '_ _' 
-                : '**New event detected!**\n_ _',
               url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
               color: currentEvent.isLiveNow ? 0xFF0000 : 0xFF6600, // Red for live, Orange for scheduled
               thumbnail: {
@@ -248,9 +245,16 @@ jobs:
               inline: true
             });
             
+            // Empty field to push link to the right
             embed.fields.push({
-              name: '🔗 Quick Link',
-              value: `[Open Event](https://www.roblox.com/events/${currentEvent.id})`,
+              name: '\u200B',
+              value: '\u200B',
+              inline: true
+            });
+            
+            embed.fields.push({
+              name: '🔗 Open Event',
+              value: `[Click Here](https://www.roblox.com/events/${currentEvent.id})`,
               inline: true
             });
             
