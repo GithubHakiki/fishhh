@@ -202,8 +202,8 @@ jobs:
             const embed = {
               title: currentEvent.isLiveNow ? '🔴 Fish-It Event LIVE NOW!' : '🎣 Fish-It Event Alert',
               description: currentEvent.isLiveNow 
-                ? '**EVENT SEDANG BERJALAN SEKARANG!**\n_ _' 
-                : '**Event baru terdeteksi!**\n_ _',
+                ? '_ _' 
+                : '**New event detected!**\n_ _',
               url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
               color: currentEvent.isLiveNow ? 0xFF0000 : 0xFF6600, // Red for live, Orange for scheduled
               thumbnail: {
@@ -218,7 +218,7 @@ jobs:
             
             // Event Name
             embed.fields.push({
-              name: '📌 Nama Event',
+              name: '📌 Event Name',
               value: `**${currentEvent.title || 'Unknown Event'}**\n_ _`,
               inline: false
             });
@@ -226,7 +226,7 @@ jobs:
             // Event Time/Status
             if (eventTimeDisplay) {
               embed.fields.push({
-                name: currentEvent.isLiveNow ? '⏰ Status' : '🕐 Waktu Event',
+                name: currentEvent.isLiveNow ? '⏰ Status' : '🕐 Event Time',
                 value: eventTimeDisplay + '\n_ _',
                 inline: false
               });
@@ -250,7 +250,7 @@ jobs:
             
             embed.fields.push({
               name: '🔗 Quick Link',
-              value: `[Buka Event](https://www.roblox.com/events/${currentEvent.id})`,
+              value: `[Open Event](https://www.roblox.com/events/${currentEvent.id})`,
               inline: true
             });
             
