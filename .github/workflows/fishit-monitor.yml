@@ -63,10 +63,20 @@ jobs:
                 const linkElement = tile.querySelector('a');
                 const descriptionElement = tile.querySelector('.info-label');
                 
+                // Get raw date text
+                const rawDate = dateElement?.textContent?.trim() || '';
+                
+                // Check if event is live now (case insensitive, handle variations)
+                const lowerDate = rawDate.toLowerCase();
+                const isLiveNow = lowerDate === 'new content' || 
+                                 lowerDate === 'newcontent' || 
+                                 lowerDate.includes('new content');
+                
                 return {
                   id: tile.id,
                   title: titleElement?.textContent?.trim() || 'Unknown Event',
-                  date: dateElement?.textContent?.trim() || '',
+                  date: rawDate,
+                  isLiveNow: isLiveNow, // Detect if event is live NOW
                   image: imageElement?.src || '',
                   link: linkElement?.href || '',
                   description: descriptionElement?.textContent?.trim() || ''
@@ -86,21 +96,44 @@ jobs:
             const currentEvent = events[0];
             console.log('Current event:', JSON.stringify(currentEvent, null, 2));
             
-            // Read last event ID
+            // Read last event ID and notification status
             let lastEventId = '';
+            let wasNotified = false;
+            
             try {
-              lastEventId = fs.readFileSync('last_event_id.txt', 'utf8').trim();
+              const savedData = fs.readFileSync('last_event_id.txt', 'utf8').trim();
+              if (savedData.includes('|')) {
+                // Format: "eventId|notified"
+                const [id, notifStatus] = savedData.split('|');
+                lastEventId = id;
+                wasNotified = notifStatus === 'true';
+              } else {
+                // Old format: just event ID
+                lastEventId = savedData;
+                wasNotified = false;
+              }
             } catch (e) {
               console.log('No previous event ID found');
             }
             
+            console.log(`Last event: ${lastEventId}, Was notified: ${wasNotified}`);
+            
+            // Check if event ID is the same
             if (currentEvent.id === lastEventId) {
-              console.log('Event unchanged');
-              process.exit(0);
+              if (wasNotified) {
+                console.log('Event unchanged and already notified - skipping');
+                process.exit(0);
+              } else {
+                console.log('Event unchanged but not yet notified - will send notification');
+              }
+            } else {
+              console.log('New event detected!');
             }
             
-            // Save new event ID
-            fs.writeFileSync('last_event_id.txt', currentEvent.id);
+            // Save event ID with notified status AFTER sending notification
+            const saveEventData = (notified) => {
+              fs.writeFileSync('last_event_id.txt', `${currentEvent.id}|${notified}`);
+            };
             
             // Send to Discord
             const discordWebhook = process.env.DISCORD_WEBHOOK;
@@ -111,8 +144,14 @@ jobs:
             
             // Parse date and convert to Unix timestamp for Discord
             let discordTimestamp = null;
+            let eventTimeDisplay = '';
             
-            if (currentEvent.date) {
+            if (currentEvent.isLiveNow) {
+              // Event is happening NOW!
+              discordTimestamp = Math.floor(Date.now() / 1000);
+              eventTimeDisplay = '🔴 **LIVE NOW! Event sedang berjalan sekarang!**';
+              console.log('Event is LIVE NOW!');
+            } else if (currentEvent.date) {
               try {
                 // Parse date like "Sun, Feb 1, 8:00 AM" (WIB time from Puppeteer with Asia/Jakarta timezone)
                 const dateMatch = currentEvent.date.match(/(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)/);
@@ -142,19 +181,21 @@ jobs:
                   
                   // Get Unix timestamp (seconds)
                   discordTimestamp = Math.floor(dateObj.getTime() / 1000);
+                  eventTimeDisplay = `<t:${discordTimestamp}:F>`;
                   
                   console.log(`Parsed date: ${currentEvent.date} (WIB) -> Unix: ${discordTimestamp}`);
                 }
               } catch (e) {
                 console.log('Could not parse date:', e.message);
+                eventTimeDisplay = `📅 ${currentEvent.date}`;
               }
             }
             
             const embed = {
-              title: '🎣 Fish-It Event Alert',
-              description: '🚨 **EVENT BARU TERDETEKSI!**',
+              title: currentEvent.isLiveNow ? '🔴 Fish-It Event LIVE NOW!' : '🎣 Fish-It Event Alert',
+              description: currentEvent.isLiveNow ? '🚨 **EVENT SEDANG BERJALAN SEKARANG!**' : '🚨 **EVENT BARU TERDETEKSI!**',
               url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
-              color: 0xFF6600, // Orange
+              color: currentEvent.isLiveNow ? 0xFF0000 : 0xFF6600, // Red for live, Orange for scheduled
               thumbnail: {
                 url: currentEvent.image || 'https://tr.rbxcdn.com/180DAY-a9ff09dd1042a26b4364f92a4324ad2a/384/216/Image/Jpeg/noFilter'
               },
@@ -172,17 +213,10 @@ jobs:
             };
             
             // Add date field with Discord timestamp (auto-converts to user's timezone)
-            if (discordTimestamp) {
+            if (eventTimeDisplay) {
               embed.fields.push({
-                name: '🕐 Event Time',
-                value: `<t:${discordTimestamp}:F>`, // Discord timestamp format: full date + time
-                inline: false
-              });
-            } else if (currentEvent.date) {
-              // Fallback if parsing failed
-              embed.fields.push({
-                name: '🕐 Event Time',
-                value: `📅 ${currentEvent.date}`,
+                name: currentEvent.isLiveNow ? '⏰ Status' : '🕐 Event Time',
+                value: eventTimeDisplay,
                 inline: false
               });
             }
@@ -214,15 +248,20 @@ jobs:
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
+                content: '@everyone',
                 embeds: [embed]
               })
             });
             
             if (response.ok) {
               console.log('✅ Discord notification sent!');
+              // Save event ID with notified=true
+              saveEventData(true);
             } else {
               const errorText = await response.text();
               console.error('❌ Failed to send Discord notification:', response.status, errorText);
+              // Save event ID with notified=false so it will retry next time
+              saveEventData(false);
               process.exit(1);
             }
           })();
