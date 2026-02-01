@@ -149,7 +149,7 @@ jobs:
             if (currentEvent.isLiveNow) {
               // Event is happening NOW!
               discordTimestamp = Math.floor(Date.now() / 1000);
-              eventTimeDisplay = '🔴 **LIVE NOW! Event sedang berjalan sekarang!**';
+              eventTimeDisplay = '🔴 **HAPPENING NOW!**';
               console.log('Event is LIVE NOW!');
             } else if (currentEvent.date) {
               try {
@@ -193,7 +193,6 @@ jobs:
             
             const embed = {
               title: currentEvent.isLiveNow ? '🔴 Fish-It Event LIVE NOW!' : '🎣 Fish-It Event Alert',
-              description: currentEvent.isLiveNow ? '🚨 **EVENT SEDANG BERJALAN SEKARANG!**' : '🚨 **EVENT BARU TERDETEKSI!**',
               url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
               color: currentEvent.isLiveNow ? 0xFF0000 : 0xFF6600, // Red for live, Orange for scheduled
               thumbnail: {
