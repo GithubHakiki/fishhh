@@ -120,15 +120,22 @@ jobs:
             
             // Check if event ID is the same
             if (currentEvent.id === lastEventId) {
+              // Event ID sama, sudah pernah terdeteksi
               if (wasNotified) {
                 console.log('Event unchanged and already notified - skipping');
                 process.exit(0);
               } else {
-                console.log('Event unchanged but not yet notified - will send notification');
+                // Event ID sama tapi belum notified (kemungkinan notif gagal sebelumnya)
+                // Tetap skip, karena ini bukan event baru
+                console.log('Event unchanged (notification previously failed, but skipping duplicate)');
+                // Update status jadi notified supaya tidak coba lagi
+                fs.writeFileSync('last_event_id.txt', `${currentEvent.id}|true`);
+                process.exit(0);
               }
-            } else {
-              console.log('New event detected!');
             }
+            
+            // Event ID berbeda - ini event baru!
+            console.log('New event detected!');
             
             // Save event ID with notified status AFTER sending notification
             const saveEventData = (notified) => {
@@ -191,55 +198,59 @@ jobs:
               }
             }
             
+            // Build embed with better spacing
             const embed = {
               title: currentEvent.isLiveNow ? '🔴 Fish-It Event LIVE NOW!' : '🎣 Fish-It Event Alert',
+              description: currentEvent.isLiveNow 
+                ? '**EVENT SEDANG BERJALAN SEKARANG!**\n_ _' 
+                : '**Event baru terdeteksi!**\n_ _',
               url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
               color: currentEvent.isLiveNow ? 0xFF0000 : 0xFF6600, // Red for live, Orange for scheduled
               thumbnail: {
                 url: currentEvent.image || 'https://tr.rbxcdn.com/180DAY-a9ff09dd1042a26b4364f92a4324ad2a/384/216/Image/Jpeg/noFilter'
               },
-              fields: [
-                {
-                  name: '📌 Event Name',
-                  value: currentEvent.title || 'Unknown Event',
-                  inline: false
-                }
-              ],
+              fields: [],
               timestamp: new Date().toISOString(),
               footer: {
                 text: 'Fish-It Event Watcher'
               }
             };
             
-            // Add date field with Discord timestamp (auto-converts to user's timezone)
+            // Event Name
+            embed.fields.push({
+              name: '📌 Nama Event',
+              value: `**${currentEvent.title || 'Unknown Event'}**\n_ _`,
+              inline: false
+            });
+            
+            // Event Time/Status
             if (eventTimeDisplay) {
               embed.fields.push({
-                name: currentEvent.isLiveNow ? '⏰ Status' : '🕐 Event Time',
-                value: eventTimeDisplay,
+                name: currentEvent.isLiveNow ? '⏰ Status' : '🕐 Waktu Event',
+                value: eventTimeDisplay + '\n_ _',
                 inline: false
               });
             }
             
-            // Add description if available
+            // Description
             if (currentEvent.description) {
               embed.fields.push({
                 name: '📝 Details',
-                value: currentEvent.description,
+                value: currentEvent.description + '\n_ _',
                 inline: false
               });
             }
             
-            // Add event ID
+            // Event ID and Link (inline for compact layout)
             embed.fields.push({
               name: '🔖 Event ID',
               value: `\`${currentEvent.id}\``,
               inline: true
             });
             
-            // Add link
             embed.fields.push({
-              name: '🔗 Link',
-              value: `[Open Event](https://www.roblox.com/events/${currentEvent.id})`,
+              name: '🔗 Quick Link',
+              value: `[Buka Event](https://www.roblox.com/events/${currentEvent.id})`,
               inline: true
             });
             
