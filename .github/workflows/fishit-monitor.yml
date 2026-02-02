@@ -12,6 +12,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
       
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -76,7 +79,7 @@ jobs:
                   id: tile.id,
                   title: titleElement?.textContent?.trim() || 'Unknown Event',
                   date: rawDate,
-                  isLiveNow: isLiveNow, // Detect if event is live NOW
+                  isLiveNow: isLiveNow,
                   image: imageElement?.src || '',
                   link: linkElement?.href || '',
                   description: descriptionElement?.textContent?.trim() || ''
@@ -84,7 +87,7 @@ jobs:
               });
             });
             
-            console.log(`Found ${events.length} event(s)`);
+            console.log('Found ' + events.length + ' event(s)');
             
             await browser.close();
             
@@ -94,53 +97,51 @@ jobs:
             }
             
             const currentEvent = events[0];
-            console.log('Current event:', JSON.stringify(currentEvent, null, 2));
+            console.log('Current event: ' + JSON.stringify(currentEvent, null, 2));
             
-            // Read last event ID and notification status
+            // CRITICAL: Read last event ID with proper existence check
             let lastEventId = '';
             let wasNotified = false;
             
             try {
-              const savedData = fs.readFileSync('last_event_id.txt', 'utf8').trim();
-              if (savedData.includes('|')) {
-                // Format: "eventId|notified"
-                const [id, notifStatus] = savedData.split('|');
-                lastEventId = id;
-                wasNotified = notifStatus === 'true';
+              if (fs.existsSync('last_event_id.txt')) {
+                const savedData = fs.readFileSync('last_event_id.txt', 'utf8').trim();
+                console.log('File exists, content: ' + savedData);
+                
+                if (savedData.includes('|')) {
+                  const parts = savedData.split('|');
+                  lastEventId = parts[0].trim();
+                  wasNotified = parts[1].trim() === 'true';
+                } else if (savedData.length > 0) {
+                  lastEventId = savedData;
+                  wasNotified = true; // Assume old format was already notified
+                }
               } else {
-                // Old format: just event ID
-                lastEventId = savedData;
-                wasNotified = false;
+                console.log('File does not exist - first run');
               }
             } catch (e) {
-              console.log('No previous event ID found');
+              console.log('Error reading file: ' + e.message);
             }
             
-            console.log(`Last event: ${lastEventId}, Was notified: ${wasNotified}`);
+            console.log('Last event ID: "' + lastEventId + '"');
+            console.log('Current event ID: "' + currentEvent.id + '"');
+            console.log('Was notified: ' + wasNotified);
             
-            // Check if event ID is the same
-            if (currentEvent.id === lastEventId) {
-              // Event ID sama, sudah pernah terdeteksi
-              if (wasNotified) {
-                console.log('Event unchanged and already notified - skipping');
-                process.exit(0);
-              } else {
-                // Event ID sama tapi belum notified (kemungkinan notif gagal sebelumnya)
-                // Tetap skip, karena ini bukan event baru
-                console.log('Event unchanged (notification previously failed, but skipping duplicate)');
-                // Update status jadi notified supaya tidak coba lagi
-                fs.writeFileSync('last_event_id.txt', `${currentEvent.id}|true`);
-                process.exit(0);
+            // STRICT CHECK: If event ID is the same, ALWAYS skip
+            if (lastEventId && currentEvent.id === lastEventId) {
+              console.log('*** EVENT ID IS THE SAME - SKIPPING NOTIFICATION ***');
+              
+              // Make absolutely sure it's marked as notified
+              if (!wasNotified) {
+                console.log('Marking as notified to prevent future attempts');
+                fs.writeFileSync('last_event_id.txt', currentEvent.id + '|true');
               }
+              
+              process.exit(0);
             }
             
-            // Event ID berbeda - ini event baru!
-            console.log('New event detected!');
-            
-            // Save event ID with notified status AFTER sending notification
-            const saveEventData = (notified) => {
-              fs.writeFileSync('last_event_id.txt', `${currentEvent.id}|${notified}`);
-            };
+            // Only reach here if event ID is different
+            console.log('*** NEW EVENT DETECTED - WILL SEND NOTIFICATION ***');
             
             // Send to Discord
             const discordWebhook = process.env.DISCORD_WEBHOOK;
@@ -157,13 +158,18 @@ jobs:
               // Event is happening NOW!
               discordTimestamp = Math.floor(Date.now() / 1000);
               eventTimeDisplay = '🔴 **HAPPENING NOW!**';
-              console.log('Event is LIVE NOW!');
+              console.log('Event is LIVE NOW');
             } else if (currentEvent.date) {
               try {
                 // Parse date like "Sun, Feb 1, 8:00 AM" (WIB time from Puppeteer with Asia/Jakarta timezone)
                 const dateMatch = currentEvent.date.match(/(\w+),\s+(\w+)\s+(\d+),\s+(\d+):(\d+)\s+(AM|PM)/);
                 if (dateMatch) {
-                  const [_, dayName, month, day, hour, minute, ampm] = dateMatch;
+                  const dayName = dateMatch[1];
+                  const month = dateMatch[2];
+                  const day = dateMatch[3];
+                  const hour = dateMatch[4];
+                  const minute = dateMatch[5];
+                  const ampm = dateMatch[6];
                   
                   // Convert to 24-hour format
                   let hour24 = parseInt(hour);
@@ -188,21 +194,21 @@ jobs:
                   
                   // Get Unix timestamp (seconds)
                   discordTimestamp = Math.floor(dateObj.getTime() / 1000);
-                  eventTimeDisplay = `<t:${discordTimestamp}:F>`;
+                  eventTimeDisplay = '<t:' + discordTimestamp + ':F>';
                   
-                  console.log(`Parsed date: ${currentEvent.date} (WIB) -> Unix: ${discordTimestamp}`);
+                  console.log('Parsed date: ' + currentEvent.date + ' (WIB) -> Unix: ' + discordTimestamp);
                 }
               } catch (e) {
-                console.log('Could not parse date:', e.message);
-                eventTimeDisplay = `📅 ${currentEvent.date}`;
+                console.log('Could not parse date: ' + e.message);
+                eventTimeDisplay = currentEvent.date;
               }
             }
             
-            // Build embed with better spacing
+            // Build embed
             const embed = {
               title: currentEvent.isLiveNow ? '🔴 Fish-It Event LIVE NOW!' : '🎣 Fish-It Event Alert',
-              url: currentEvent.link || `https://www.roblox.com/events/${currentEvent.id}`,
-              color: currentEvent.isLiveNow ? 0xFF0000 : 0xFF6600, // Red for live, Orange for scheduled
+              url: currentEvent.link || 'https://www.roblox.com/events/' + currentEvent.id,
+              color: currentEvent.isLiveNow ? 0xFF0000 : 0xFF6600,
               thumbnail: {
                 url: currentEvent.image || 'https://tr.rbxcdn.com/180DAY-a9ff09dd1042a26b4364f92a4324ad2a/384/216/Image/Jpeg/noFilter'
               },
@@ -216,7 +222,7 @@ jobs:
             // Event Name
             embed.fields.push({
               name: '📌 Event Name',
-              value: `**${currentEvent.title || 'Unknown Event'}**\n_ _`,
+              value: '**' + (currentEvent.title || 'Unknown Event') + '**\n_ _',
               inline: false
             });
             
@@ -238,14 +244,13 @@ jobs:
               });
             }
             
-            // Event ID and Link (inline for compact layout)
+            // Event ID and Link
             embed.fields.push({
               name: '🔖 Event ID',
-              value: `\`${currentEvent.id}\``,
+              value: '`' + currentEvent.id + '`',
               inline: true
             });
             
-            // Empty field to push link to the right
             embed.fields.push({
               name: '\u200B',
               value: '\u200B',
@@ -254,10 +259,11 @@ jobs:
             
             embed.fields.push({
               name: '🔗 Open Event',
-              value: `[Click Here](https://www.roblox.com/events/${currentEvent.id})`,
+              value: '[Click Here](https://www.roblox.com/events/' + currentEvent.id + ')',
               inline: true
             });
             
+            console.log('Sending notification to Discord...');
             const response = await fetch(discordWebhook, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -267,23 +273,50 @@ jobs:
             });
             
             if (response.ok) {
-              console.log('✅ Discord notification sent!');
+              console.log('Discord notification sent successfully');
               // Save event ID with notified=true
-              saveEventData(true);
+              fs.writeFileSync('last_event_id.txt', currentEvent.id + '|true');
+              console.log('Saved event ID to file: ' + currentEvent.id + '|true');
             } else {
               const errorText = await response.text();
-              console.error('❌ Failed to send Discord notification:', response.status, errorText);
-              // Save event ID with notified=false so it will retry next time
-              saveEventData(false);
+              console.error('Failed to send Discord notification: ' + response.status + ' - ' + errorText);
+              // DO NOT save event ID if notification failed - will retry next time
               process.exit(1);
             }
           })();
           EOF
       
-      - name: Commit event ID
+      - name: Commit and push event ID
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add last_event_id.txt || true
-          git commit -m "Update event ID [skip ci]" || true
-          git push || true
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Pull latest changes first to avoid conflicts
+          git pull origin ${{ github.ref_name }} --rebase || true
+          
+          # Add the file
+          git add last_event_id.txt
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            # Commit with skip ci to avoid triggering workflow again
+            git commit -m "Update event ID [skip ci]"
+            
+            # Push with retry mechanism (max 3 attempts)
+            for i in 1 2 3; do
+              echo "Attempting to push (attempt $i/3)..."
+              if git push origin ${{ github.ref_name }}; then
+                echo "Push successful"
+                exit 0
+              else
+                echo "Push failed, retrying in 2 seconds..."
+                sleep 2
+                git pull origin ${{ github.ref_name }} --rebase || true
+              fi
+            done
+            
+            echo "Failed to push after 3 attempts"
+            exit 1
+          fi
